@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Voice PPT Assistant</title>
+</head>
+<body>
+    <h2>🎤 AI PPT Voice Assistant</h2>
+    
+    <button id="recordBtn">🎙️ Record Voice</button>
+    <p id="result"></p>
+
+    <script>
+        document.getElementById("recordBtn").onclick = async () => {
+            document.getElementById("result").innerText = "Recording...";
+            
+            const res = await fetch("/record", { method: "POST" });
+            const data = await res.json();
+            
+            document.getElementById("result").innerText = "You said: " + data.text;
+        };
+    </script>
+</body>
+</html>
+<button id="recordBtn">🎤 Record Voice</button>
+<button id="stopBtn">⛔ Stop Recording</button>
+<p id="status"></p>
+<p id="result"></p>
