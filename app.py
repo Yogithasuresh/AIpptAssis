@@ -1,34 +1,18 @@
-from flask import Flask, request, jsonify, render_template
-import speech_recognition as sr
-import os
+from flask import Flask, jsonify
+from googleapiclient.discovery import build
+
+API_KEY = "AIzaSyBDmDnQoT-1CAkqZBCco_wjSdBxV1h8uwc"
+CX_ID = "4229dc2e694714f1f"
 
 app = Flask(__name__)
 
-@app.route("/")
-def index():
-    return render_template("index.html")
+@app.route("/search/<query>")
+def search_images(query):
+    service = build("customsearch", "v1", developerKey=API_KEY)
+    results = service.cse().list(q=query, cx=CX_ID, searchType="image", num=4).execute()
 
-@app.route("/record", methods=["POST"])
-def record():
-    if "audio" not in request.files:
-        return jsonify({"error": "No audio file"}), 400
-
-    audio_file = request.files["audio"]
-    file_path = "voice.wav"
-    audio_file.save(file_path)
-
-    recognizer = sr.Recognizer()
-    try:
-        with sr.AudioFile(file_path) as source:
-            audio_data = recognizer.record(source)
-
-        text = recognizer.recognize_google(audio_data)
-        return jsonify({"text": text})
-
-    except sr.UnknownValueError:
-        return jsonify({"text": "Could not understand audio"})
-    except Exception as e:
-        return jsonify({"text": "Error: " + str(e)})
+    image_urls = [item["link"] for item in results.get("items", [])]
+    return jsonify(image_urls)
 
 if __name__ == "__main__":
     app.run(debug=True)
