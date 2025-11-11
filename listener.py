@@ -2,8 +2,8 @@ import speech_recognition as sr
 import time
 from googleapiclient.discovery import build
 
-API_KEY = "ABC"
-CX_ID = "CXX"
+API_KEY = "AIzaSyBDmDnQoT-1CAkqZBCco_wjSdBxV1h8uwc"
+CX_ID = "4229dc2e694714f1f"
 
 recognizer = sr.Recognizer()
 mic = sr.Microphone()
