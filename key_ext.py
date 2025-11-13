@@ -5,9 +5,9 @@ nltk.download('wordnet', quiet=True)
 
 # ✅ Load the best available spaCy model
 try:
-    nlp = spacy.load("en_core_web_md")
+    nlp = spacy.load("en_core_web_sm")
 except OSError:
-    print("⚠️ 'en_core_web_md' not found. Using 'en_core_web_sm' instead.")
+    print("Using 'en_core_web_sm' instead.")
     nlp = spacy.load("en_core_web_sm")
 
 
