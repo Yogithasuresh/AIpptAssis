@@ -1,186 +1,176 @@
-import speech_recognition as sr
+import speech_recognition as sr 
 import requests
-import io
 from PIL import Image, ImageTk
+import io
 import tkinter as tk
 import threading
-import re
 import spacy
-from collections import Counter
-import webview
-import threading
+from googleapiclient.discovery import build
 import time
+from openai import OpenAI
+from dotenv import load_dotenv
 import os
-import time
-from key_ext import extract_smart_keyword
 
-# 🔑 Replace these with your actual Google API credentials
-GOOGLE_API_KEY = "REMOVEDSyBDmDnQoT-1CAkqZBCco_wjSdBxV1h8uwc"
-CX_ID = "4229dc2e694714f1f"
+load_dotenv(".env")
 
-# ------------------ Keyword Extractor -----------------
 
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+def rewrite_query(user_text):
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": "Rewrite the user's text into a short, precise image search query. Focus on meaning. Avoid long sentences."
+            },
+            {
+                "role": "user",
+                "content": user_text
+            }
+        ],
+        max_tokens=20
+    )
+    refined = response.choices[0].message.content.strip()
+    return refined
+
+
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+CX_ID = os.getenv("CX_ID")
+
+# ------------------ NLP Setup ------------------
 nlp = spacy.load("en_core_web_sm")
 
 def extract_keywords(sentence):
-    """
-    Extract the most meaningful nouns or noun phrases from a user sentence.
-    Returns a clean keyword string for image search.
-    """
-    doc = nlp(sentence.lower())
-    candidates = []
+    doc = nlp(sentence)
 
-    for chunk in doc.noun_chunks:
-        # Exclude pronouns, generic terms
-        if not any(word.pos_ in ["PRON", "DET"] for word in chunk):
-            candidates.append(chunk.text.strip())
+    nouns = [t.text for t in doc if t.pos_ in ["NOUN", "PROPN"]]
 
-    # fallback: if no chunk, pick nouns
-    if not candidates:
-        candidates = [token.text for token in doc if token.pos_ == "NOUN"]
+    if not nouns:
+        return sentence.lower()
 
-    # pick the most frequent noun phrase
-    if candidates:
-        keyword = Counter(candidates).most_common(1)[0][0]
-    else:
-        keyword = sentence
-
-    # clean up small/common words
-    remove_words = {"image", "picture", "photo", "show", "display", "me"}
-    words = [w for w in keyword.split() if w not in remove_words]
-    return " ".join(words)
+    return " ".join(nouns[:3])
 
 
-# ------------------ Image Fetcher ------------------
-def fetch_image_data(query):
-    """Fetch a single image using Google Custom Search API."""
-    search_url = "https://www.googleapis.com/customsearch/v1"
-    params = {
-        "q": query,
-        "cx": CX_ID,
-        "key": GOOGLE_API_KEY,
-        "searchType": "image",
-        "num": 3,   # get a few results to increase success chance
-        "imgSize": "large"
-    }
 
-    response = requests.get(search_url, params=params)
-    data = response.json()
 
-    if "items" not in data or len(data["items"]) == 0:
-        print("⚠️ No image found for:", query)
-        return None
+# ------------------ GOOGLE SEARCH (from 2nd code) ------------------
+def google_fetch_urls(query):
+    try:
+        service = build("customsearch", "v1", developerKey=GOOGLE_API_KEY)
+        results = service.cse().list(
+            q=f"{query} high quality realistic photo",
+            cx=CX_ID,
+            searchType="image",
+            num=5,
+            safe="active"
+        ).execute()
 
-    # Try each link until one works
-    for item in data["items"]:
-        image_url = item["link"]
+        urls = [item["link"] for item in results.get("items", [])]
+        return urls
+
+    except Exception as e:
+        print("⚠️ Google search error:", e)
+        return []
+
+
+# ------------------ DOWNLOAD AND VALIDATE IMAGE ------------------
+def get_valid_image(urls):
+    for url in urls:
         try:
-            resp = requests.get(image_url, timeout=5)
-            if resp.status_code == 200 and resp.headers.get("Content-Type", "").startswith("image"):
-                return io.BytesIO(resp.content)
-        except Exception:
+            img_res = requests.get(url, timeout=6)
+
+            if "image" not in img_res.headers.get("Content-Type", ""):
+                continue
+
+            img = Image.open(io.BytesIO(img_res.content))
+            w, h = img.size
+
+            if w < 300 or h < 200:
+                continue
+            if "logo" in url.lower() or "icon" in url.lower():
+                continue
+
+            return img_res.content
+
+        except:
             continue
 
-    print("⚠️ No valid image content found.")
     return None
 
 
-def show_image_popup(image_bytes, title="AI Image"):
-    """Display the fetched image as a popup at the bottom-right corner (thread-safe)."""
-    def popup():
+# ------------------ POPUP ------------------
+def show_image_popup(image_bytes):
+    def run():
         try:
-            img = Image.open(image_bytes)
-        except Exception as e:
-            print("⚠️ Image open failed:", e)
+            img = Image.open(io.BytesIO(image_bytes))
+        except:
+            print("⚠️ Invalid image")
             return
 
-        # Create Tk window first
+        img.thumbnail((500, 500))
+        w, h = img.size
+
         root = tk.Tk()
-        root.title(title)
-        root.attributes('-topmost', True)
         root.overrideredirect(True)
+        root.attributes('-topmost', True)
+        root.configure(bg="black")
 
-        # Position bottom-right
-        screen_width = root.winfo_screenwidth()
-        screen_height = root.winfo_screenheight()
-        window_width = 400
-        window_height = 300
-        x = screen_width - window_width - 40
-        y = screen_height - window_height - 80
-        root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+        tk_img = ImageTk.PhotoImage(img)
+        label = tk.Label(root, image=tk_img, bg="black")
+        label.image = tk_img
+        label.pack()
 
-        # Convert image before attaching to label
-        img.thumbnail((400, 300))
-        photo = ImageTk.PhotoImage(img)
+        sw = root.winfo_screenwidth()
+        sh = root.winfo_screenheight()
+        x = sw - w - 20
+        y = sh - h - 60
+        root.geometry(f"{w}x{h}+{x}+{y}")
 
-        # Keep reference alive using an attribute on root
-        label = tk.Label(root, image=photo, bg="black")
-        label.image = photo  # <- prevents garbage collection
-        label.pack(fill="both", expand=True)
-
-        # Auto-close after 10s
-        root.after(10000, root.destroy)
+        root.after(8000, root.destroy)
         root.mainloop()
 
-    # Run Tk window in its own thread
-    threading.Thread(target=popup, daemon=True).start()
+    threading.Thread(target=run, daemon=True).start()
 
 
-
-# ------------------ Speech Recognition ------------------
+# ------------------ MAIN LISTENER ------------------
 def listen_and_fetch():
-    recognizer = sr.Recognizer()
+    r = sr.Recognizer()
     mic = sr.Microphone()
 
-    print("🎤 Voice assistant active — Speak to fetch images!\n")
+    print("\n🎤 Voice assistant active...\n")
+
     while True:
         with mic as source:
-            print("👂 Listening (speak now)...")
-            recognizer.adjust_for_ambient_noise(source)
-            audio = recognizer.listen(source)
+            r.adjust_for_ambient_noise(source)
+            print("👂 Listening...")
+            audio = r.listen(source)
 
-        print("⏳ Recognizing...")
         try:
-            text = recognizer.recognize_google(audio)
-            print(f"You said: {text}")
+            text = r.recognize_google(audio)
+            print(f"🗣️ You said: {text}")
 
-            keywords = extract_keywords(text)
-            if not keywords:
-                print("⚠️ No useful keywords found.")
-                continue
+            query = rewrite_query(text)
+            print("🎯 Refined Query:", query)
 
-            print(f"🎯 Extracted keywords: {keywords}")
-            image_bytes = fetch_image_data(keywords)
-            if image_bytes:
-                show_image_popup(image_bytes, title=keywords.title())
-                print(f"🖼️ Showing image for: {keywords}")
+            urls = google_fetch_urls(query)
+            print("🔗 URLs found:", urls)
+
+            img_bytes = get_valid_image(urls)
+
+            if img_bytes:
+                show_image_popup(img_bytes)
+                print("🖼️ Image shown.")
             else:
-                print("⚠️ No image found.")
+                print("❌ No valid image found.")
 
         except sr.UnknownValueError:
-            print("❌ Could not understand audio.")
+            print("❌ Didn't catch that.")
         except Exception as e:
-            print(f"⚠️ Error: {e}")
-buffer = ""
-last_time = time.time()
+            print("⚠️ Error:", e)
 
-def handle_input(fragment):
-    global buffer, last_time
-    buffer += " " + fragment.strip()
-    now = time.time()
+        time.sleep(0.2)
 
-    # Wait until user pauses for >1.2 seconds
-    if now - last_time > 1.2:
-        sentence = buffer.strip()
-        buffer = ""
-        if len(sentence.split()) >= 3:  # Only process full sentences
-            try:
-                keyword = extract_smart_keyword(sentence)
-                print("🧠 Extracted keyword:", keyword)
-                # show_popup(keyword)  # Your function
-            except Exception as e:
-                print("❌ Error:", e)
-    last_time = now
-# ------------------ Main ------------------
+
 if __name__ == "__main__":
     listen_and_fetch()

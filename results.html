@@ -1,1 +1,77 @@
-<html><head><title>Fetched Images</title></head><body><h3>Results for 'Power Point'</h3><img src="https://upload.wikimedia.org/wikipedia/commons/2/25/Microsoft_Office_PowerPoint_%282019%E2%80%932025%29.svg" width="400" style="margin:10px;"><br></body></html>
+BEGIN
+
+IMPORT required modules (tkinter, PIL, base64, io, traceback, OpenAI)
+
+SET OpenAI API key
+
+
+FUNCTION generate_description(image_bytes):
+    TRY:
+        Send image and prompt to AI model
+        Get generated description
+        RETURN description
+    EXCEPT:
+        RETURN error message
+END FUNCTION
+
+
+FUNCTION show_image(base64_data):
+    TRY:
+        Decode base64 image
+        Load and convert image to RGBA
+        Resize image to max 720px
+
+        Create Tkinter popup window (borderless, top-most, black background)
+        Position popup at bottom-right of screen
+
+        Display image inside window
+        description = generate_description(image_bytes)
+
+        Display description text below image
+        Auto-close popup after 12 seconds
+        Start Tkinter loop
+    EXCEPT:
+        Print error
+END FUNCTION
+
+
+MAIN:
+    IF no input provided:
+        Print warning
+    ELSE:
+        show_image(base64_input)
+END MAIN
+
+END
+
+
+START
+
+Initialize system
+Load speech recognizer
+Load language model
+Prepare image retrieval module
+Prepare popup/display module
+
+LOOP forever:
+    Listen for user's speech
+    Convert speech to text
+    
+    If text recognized:
+        Generate a short visual search query
+        Extract important keywords
+        
+        Fetch a few candidate visuals based on query
+        Select a suitable image
+        
+        If image is valid:
+            Display image briefly on screen
+        Else:
+            Continue listening
+    
+    Else:
+        Handle unrecognized speech
+    
+    Wait briefly and resume listening
+
+END LOOP
